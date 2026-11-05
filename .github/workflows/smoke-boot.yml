@@ -65,6 +65,14 @@ jobs:
             --tmpfs /data:rw \
             -e PRIVY_APP_ID=cl-staging-installomp-placeholder \
             -e PRIVY_VERIFICATION_KEY="$VKEY" \
+            # Static-mode owner placeholder + dynamic-mode URLs: the auth-proxy
+            # REQUIRES OPENCLAW_OWNER_PRIVY_ID in static mode (no VERIFY_OWNER_URL)
+            # and exits rc 1 before listening otherwise (smoke run 42084992387).
+            # Mirror the hermes-hosted smoke exactly — buffer-unassigned is a
+            # recognized static placeholder; example.invalid never resolves.
+            -e OPENCLAW_OWNER_PRIVY_ID=buffer-unassigned \
+            -e VERIFY_OWNER_URL=https://example.invalid/functions/v1/verify-owner \
+            -e VERIFY_OWNER_SECRET=smoke-secret-not-real \
             -e CIG_ADAPTER_KEY=smoke-local-key \
             -e CIG_MINT_URL=http://127.0.0.1:9/ \
             -e CIG_INFERENCE_URL=http://127.0.0.1:9/ \
