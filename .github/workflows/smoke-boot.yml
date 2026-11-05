@@ -118,9 +118,16 @@ jobs:
           #    MERGE-BLOCKING): ttyd and cig-adapter must NOT listen on
           #    non-loopback interfaces.
           docker exec omp-smoke sh -c 'ss -tlnp 2>/dev/null | grep -E ":7681|:18900" | grep -v "127.0.0.1" && { echo "::error::non-loopback bind detected"; exit 1; } || true'
-          # 5. The omp TUI lives inside the tmux session.
-          docker exec omp-smoke tmux has-session -t omp
-          docker exec omp-smoke tmux list-panes -t omp -F '#{pane_current_command}'
+          # 5. The omp TUI lives inside the tmux session. The tmux server runs
+          #    as the agent user (AGENT_UID 10000 — socket /tmp/tmux-10000/
+          #    default), so these assertions must exec as that user, NOT root
+          #    (a root client looks for /tmp/tmux-0/default and fails).
+          docker exec -u 10000 omp-smoke tmux has-session -t omp
+          docker exec -u 10000 omp-smoke tmux list-panes -t omp -F '#{pane_current_command}'
+          # 5b. The TUI process itself is alive inside the session (the tmux
+          #     restart wrapper relaunches `omp` on crash — a container that
+          #     has been stable for 10 minutes must have it running).
+          docker exec -u 10000 omp-smoke sh -c 'pgrep -x omp >/dev/null || { echo "::error::omp TUI process not running in tmux session"; exit 1; }'
 
       - name: Regression grep (known failure strings)
         run: |
