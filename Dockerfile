@@ -44,11 +44,21 @@ LABEL org.opencontainers.image.source="https://github.com/profbernardoj/omp-host
 LABEL io.installomp.base-image="can1357/oh-my-pi:v18.16.0 (pi-runtime, built from pinned ref)"
 
 # --- Our layer: web terminal + privilege-drop tooling ---
-# ttyd + tmux: the web terminal surface. util-linux provides setpriv
-# (privilege drops without s6). procps for pgrep-driven supervision helpers.
+# ttyd is NOT in Debian bookworm main (verified 2026-11-05: "Package 'ttyd'
+# has no installation candidate") — install the official STATIC binary from
+# the pinned upstream release, SHA-256 verified (bump via the pin procedure).
+# tmux from apt; util-linux provides setpriv (privilege drops without s6);
+# procps for pgrep-driven supervision helpers. amd64-only (SOP-004).
+ARG TTYD_VERSION=1.7.7
+ARG TTYD_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ttyd tmux util-linux procps \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends tmux util-linux procps ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL -o /usr/local/bin/ttyd \
+       "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" \
+    && echo "${TTYD_SHA256}  /usr/local/bin/ttyd" | sha256sum -c - \
+    && chmod 755 /usr/local/bin/ttyd \
+    && ttyd --version
 
 # --- Agent user (uid 10000; the Fred manifest user target) ---
 RUN useradd --create-home --uid 10000 --shell /bin/bash agent \
