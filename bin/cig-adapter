@@ -1,0 +1,3 @@
+#!/bin/bash
+# Launcher: cig-adapter (loopback OpenAI-compatible CIG shim)
+exec node /usr/local/lib/installomp/cig-adapter/server.mjs "$@"

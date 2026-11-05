@@ -1,0 +1,133 @@
+name: smoke-boot
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Image to smoke (default: the latest docker-build tag)"
+        required: false
+        default: ""
+  workflow_run:
+    workflows: [docker-build]
+    types: [completed]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: profbernardoj/omp-hosted
+
+jobs:
+  smoke:
+    # Fred-parity boot test — SOP-004 "Smoke-boot standard for image
+    # changes" + SOP-048 Phase 0 step 5 (hosted-mode security exit criteria
+    # are MERGE-BLOCKING for the LIVE tag).
+    # The hermes lesson (v6): a 45-second CI window was a FALSE PASS — the
+    # container died ~45s after start on Fred. This smoke matches Fred:
+    #   - /run mounted rw,NOEXEC (the s6-killing sandbox constraint)
+    #   - fred-tenant-seccomp.json applied
+    #   - 10-minute hard-gated liveness window
+    #   - per-service assertions + regression greps
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image
+        run: |
+          if [ -n "${{ github.event.inputs.image }}" ]; then
+            echo "SMOKE_IMAGE=${{ github.event.inputs.image }}" >> "$GITHUB_ENV"
+          else
+            # Latest calver tag for this repo from GHCR (public package).
+            TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${IMAGE_NAME}:pull" | jq -r .token)
+            TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" \
+              "https://ghcr.io/v2/${IMAGE_NAME}/tags/list" | jq -r '.tags[]' | sort -r | head -1)
+            if [ -z "$TAGS" ]; then
+              echo "No tags found in GHCR — run docker-build first" >&2
+              exit 1
+            fi
+            echo "SMOKE_IMAGE=$REGISTRY/$IMAGE_NAME:$TAGS" >> "$GITHUB_ENV"
+          fi
+
+      - name: Idempotent pre-flight (stale-container guard)
+        run: docker rm -f omp-smoke 2>/dev/null || true
+
+      - name: Boot with Fred parity
+        run: |
+          set -eux
+          # Synthetic (public, non-production) ES256 verification key so the
+          # auth-proxy boots fully (hermes smoke pattern).
+          VKEY="$(openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
+            | openssl ec -pubout -outform DER 2>/dev/null | base64 | tr -d '\n')"
+          docker run -d --name omp-smoke \
+            --security-opt seccomp=test-assets/fred-tenant-seccomp.json \
+            --tmpfs /run:rw,noexec \
+            --tmpfs /data:rw \
+            -e PRIVY_APP_ID=cl-staging-installomp-placeholder \
+            -e PRIVY_VERIFICATION_KEY="$VKEY" \
+            -e CIG_ADAPTER_KEY=smoke-local-key \
+            -e CIG_MINT_URL=http://127.0.0.1:9/ \
+            -e CIG_INFERENCE_URL=http://127.0.0.1:9/ \
+            -e CIG_BINDING_SECRET=smoke-binding-secret \
+            -e CIG_CONTAINER_FQDN=smoke.installomp.test \
+            -e CONTAINER_FQDN=smoke.installomp.test \
+            -e AGENT_NAME=SmokeTestAgent \
+            "$SMOKE_IMAGE"
+
+      - name: Liveness window (10 min, hard gate)
+        run: |
+          set -eu
+          FAIL=0
+          for i in $(seq 1 20); do
+            sleep 30
+            STATE="$(docker inspect --format='{{.State.Status}}' omp-smoke 2>/dev/null || echo gone)"
+            if [ "$STATE" != "running" ]; then
+              echo "::error::Container not running at check $i (state: $STATE)"
+              FAIL=1
+              break
+            fi
+          done
+          if [ "$FAIL" = 1 ]; then
+            docker inspect --format='ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} Error={{.State.Error}}' omp-smoke || true
+            docker logs omp-smoke 2>&1 | tail -100 || true
+            exit 1
+          fi
+          echo "Container alive for 10 minutes — Fred-parity liveness PASS"
+
+      - name: Per-service assertions
+        run: |
+          set -eux
+          # 1. auth-proxy: the ONLY ingress, login page 200 (via exec loopback).
+          docker exec omp-smoke curl -fsS -o /dev/null -w 'auth-proxy %{http_code}\n' http://127.0.0.1:18789/
+          # 2. ttyd web terminal: loopback 200 (web UI served).
+          docker exec omp-smoke curl -fsS -o /dev/null -w 'ttyd %{http_code}\n' http://127.0.0.1:7681/
+          # 3. cig-adapter: healthz 200.
+          docker exec omp-smoke curl -fsS -o /dev/null -w 'cig-adapter %{http_code}\n' http://127.0.0.1:18900/healthz
+          # 4. Hosted-mode security invariants (SOP-048 Phase 0 step 5 —
+          #    MERGE-BLOCKING): ttyd and cig-adapter must NOT listen on
+          #    non-loopback interfaces.
+          docker exec omp-smoke sh -c 'ss -tlnp 2>/dev/null | grep -E ":7681|:18900" | grep -v "127.0.0.1" && { echo "::error::non-loopback bind detected"; exit 1; } || true'
+          # 5. The omp TUI lives inside the tmux session.
+          docker exec omp-smoke tmux has-session -t omp
+          docker exec omp-smoke tmux list-panes -t omp -F '#{pane_current_command}'
+
+      - name: Regression grep (known failure strings)
+        run: |
+          set -eux
+          LOGS="$(docker logs omp-smoke 2>&1)"
+          for bad in "FATAL" "cont-init failed" "s6-applyuidgid" "Refusing to bind"; do
+            if echo "$LOGS" | grep -q "$bad"; then
+              echo "::error::Regression string in logs: $bad"
+              echo "$LOGS" | tail -100
+              exit 1
+            fi
+          done
+          echo "Regression grep clean"
+
+      - name: Dump logs (always, for the audit trail)
+        if: always()
+        run: docker logs omp-smoke 2>&1 | tail -200 || true
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f omp-smoke 2>/dev/null || true

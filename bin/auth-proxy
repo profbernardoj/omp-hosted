@@ -1,0 +1,3 @@
+#!/bin/bash
+# Launcher: auth-proxy (everclaw auth-proxy, unmodified)
+exec node /usr/local/lib/installomp/auth-proxy/server.mjs "$@"

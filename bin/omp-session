@@ -1,0 +1,30 @@
+#!/bin/bash
+# /usr/local/bin/omp-session — the web-terminal service process
+#
+# Ensures the persistent omp TUI session exists inside tmux, then execs
+# ttyd in the FOREGROUND (the supervised process IS ttyd — a ttyd crash
+# restarts this wrapper via the supervisor, and the wrapper re-ensures the
+# tmux session: the USER'S SESSION SURVIVES both ttyd crashes and browser
+# reconnects — tmux attach lands on the same live TUI).
+#
+# Product invariant (enforced by the entrypoint before this runs):
+# TTYD_HOST=127.0.0.1 — ttyd never binds non-loopback; the auth-proxy is
+# the only ingress. ttyd's built-in websocket Origin check passes because
+# the auth-proxy rewrites Origin to http://127.0.0.1:<port> (v9.3.2 lesson).
+set -u
+
+SESSION="${OMP_TMUX_SESSION:-omp}"
+WORKSPACE="${OMP_WORKSPACE:-$HOME/workspace}"
+TTYD_HOST="${TTYD_HOST:-127.0.0.1}"
+TTYD_PORT="${TTYD_PORT:-7681}"
+
+if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+  # Restart wrapper: if the omp TUI exits (crash or user /exit), the tmux
+  # session STAYS (ttyd keeps serving), and omp restarts inside it after
+  # a short pause. The user sees a brief pause, not a dead terminal.
+  tmux new-session -d -s "$SESSION" -c "$WORKSPACE" \
+    bash -c 'while :; do omp; echo "[omp-session] omp exited (rc $?) — restarting in 5s"; sleep 5; done'
+  echo "[omp-session] created tmux session '$SESSION' (workspace: $WORKSPACE)"
+fi
+
+exec ttyd -W -i "$TTYD_HOST" -p "$TTYD_PORT" tmux attach -t "$SESSION"
