@@ -48,21 +48,32 @@ LABEL io.installomp.base-image="can1357/oh-my-pi:v18.16.0 (pi-runtime, built fro
 # has no installation candidate") — install the official STATIC binary from
 # the pinned upstream release, SHA-256 verified (bump via the pin procedure).
 # passwd: useradd (slim base strips it — run 41980280924).
-# nodejs+npm: the auth-proxy build chain (npm ci, lockfile-pinned). The base
-#   ships BUN ONLY — Node is required for our npm-based auth-proxy build
-#   (real Node takes PATH precedence over the base's node→bun fallback).
+# nodejs/npm: the auth-proxy build chain. The base ships BUN ONLY — Node is
+#   required for the npm-based auth-proxy build. Debian bookworm's nodejs is
+#   Node 18, but the auth-proxy's jose@6 requires Node >=20 (on Node 18,
+#   importSPKI throws 'crypto is not defined', which the parser re-labels as
+#   'Unrecognized key format' — smoke run 42112508947). So we install the
+#   pinned Node 22.23.4 LTS tarball (SHA-256 verified), matching the fleet
+#   version (2026.10.21.2345 image line) — NOT the apt nodejs.
 # iproute2: `ss` for the smoke's loopback-bind invariant check.
 ARG TTYD_VERSION=1.7.7
 ARG TTYD_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
+ARG NODE_VERSION=22.23.4
+ARG NODE_SHA256=1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        tmux util-linux procps ca-certificates passwd nodejs npm iproute2 \
+        tmux util-linux procps ca-certificates passwd iproute2 xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL -o /usr/local/bin/ttyd \
        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" \
     && echo "${TTYD_SHA256}  /usr/local/bin/ttyd" | sha256sum -c - \
     && chmod 755 /usr/local/bin/ttyd \
     && ttyd --version \
+    && curl -fsSL -o /tmp/node.tar.xz \
+       "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+    && echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm -f /tmp/node.tar.xz \
     && node --version && npm --version
 
 # Upstream pi-runtime sets an explicit PATH with NO /usr/sbin or /sbin
