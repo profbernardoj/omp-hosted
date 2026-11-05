@@ -65,8 +65,16 @@ RUN apt-get update \
     && ttyd --version \
     && node --version && npm --version
 
+# Upstream pi-runtime sets an explicit PATH with NO /usr/sbin or /sbin
+# (verified v18.16.0: /opt/bun/bin:...:/usr/bin:/bin:/usr/local/bun-node-
+# fallback-bin) — but useradd (passwd pkg), ss (iproute2), and friends live
+# in /usr/sbin. Without this every one of them is "command not found" even
+# though the package is installed (run 41989633309, build 3). Extend here
+# so EVERY later RUN and the RUNTIME image resolve them.
+ENV PATH="$PATH:/usr/sbin:/sbin"
+
 # --- Agent user (uid 10000; the Fred manifest user target) ---
-RUN useradd --create-home --uid 10000 --shell /bin/bash agent \
+RUN /usr/sbin/useradd --create-home --uid 10000 --shell /bin/bash agent \
     && mkdir -p /home/agent/workspace \
     && chown -R 10000:10000 /home/agent
 
