@@ -59,17 +59,20 @@ jobs:
           # auth-proxy boots fully (hermes smoke pattern).
           VKEY="$(openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
             | openssl ec -pubout -outform DER 2>/dev/null | base64 | tr -d '\n')"
+          # Static-mode owner placeholder + dynamic-mode URLs: the auth-proxy
+          # REQUIRES OPENCLAW_OWNER_PRIVY_ID in static mode (no VERIFY_OWNER_URL)
+          # and exits rc 1 before listening otherwise (smoke run 42084992387).
+          # Mirror the hermes-hosted smoke exactly — buffer-unassigned is a
+          # recognized static placeholder; example.invalid never resolves.
+          # NOTE: keep comments ABOVE the docker run line — a '#' after a
+          # line-continuation backslash swallows the rest of the command
+          # ("docker run requires at least 1 argument", smoke run 42091929020).
           docker run -d --name omp-smoke \
             --security-opt seccomp=test-assets/fred-tenant-seccomp.json \
             --tmpfs /run:rw,noexec \
             --tmpfs /data:rw \
             -e PRIVY_APP_ID=cl-staging-installomp-placeholder \
             -e PRIVY_VERIFICATION_KEY="$VKEY" \
-            # Static-mode owner placeholder + dynamic-mode URLs: the auth-proxy
-            # REQUIRES OPENCLAW_OWNER_PRIVY_ID in static mode (no VERIFY_OWNER_URL)
-            # and exits rc 1 before listening otherwise (smoke run 42084992387).
-            # Mirror the hermes-hosted smoke exactly — buffer-unassigned is a
-            # recognized static placeholder; example.invalid never resolves.
             -e OPENCLAW_OWNER_PRIVY_ID=buffer-unassigned \
             -e VERIFY_OWNER_URL=https://example.invalid/functions/v1/verify-owner \
             -e VERIFY_OWNER_SECRET=smoke-secret-not-real \
