@@ -1,5 +1,16 @@
 # Changelog — omp-hosted
 
+## 2026.11.06 — post-Stage-2 fixes
+
+- smoke-retry fix: Resolve-image step retries `gh run download` 12×/10s
+  (GitHub artifact availability is eventually consistent — smoke run
+  42136886623 failed 4s after build completion). Fail-closed retained.
+- D1 role map: advisor now pinned `→ cig/<smol>` (cheap). Upstream verified
+  (v18.17.0 model-resolver.ts): UNSET advisor falls back to the configured
+  `slow` role (strongest) — pinning to smol honors D1 and avoids token
+  multiplication on the strongest model. vision stays UNSET (upstream vision
+  fallback chain cannot match the cig/* roster → genuinely off).
+
 ## 2026.11.05 — v0.1.0 (Phase 0 scaffold)
 
 Initial scaffold per SOP-048 Phase 0 (Stage-1 plan approved 2026-11-04 22:39 CDT).

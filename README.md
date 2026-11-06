@@ -73,9 +73,17 @@ its commit sha are recorded in every build's step summary.
 
 ## Open items (tracked in the Stage-1 plan §10)
 
-1. advisor/vision role semantics: verify UNSET disables (vs falls back to
-   default) — if fallback, pin to the cheapest model in config.yml.
+1. ~~advisor/vision role semantics~~ — **RESOLVED 2026-11-06** (verified against
+   upstream source at v18.17.0, `model-resolver.ts`): UNSET `advisor` does NOT
+   disable — `resolveAdvisorRoleSelection` falls back to the configured `slow`
+   role (strongest model), so leaving it unset would hand the advisor feature
+   the strongest model. `config.yml` now pins `advisor → cig/<smol>` (cheap,
+   honors D1). UNSET `vision` IS effectively off: the upstream vision fallback
+   chain references catalog models that cannot match the `cig/*` roster, so it
+   resolves to no model and the feature is unavailable — left unset.
 2. Login skin polish (login-app.jsx is the Hermes skin; brand via
    `BRAND_*` env works, dedicated OMP styling is a follow-up).
-3. Registry-image check on each upstream release (if they ever publish,
-   switch the CI to FROM it).
+3. Registry-image check on each upstream release (rechecked 2026-11-06: still
+   no published image — GHCR NAME_UNKNOWN ×2, no Docker Hub, no container
+   packages; build-from-ref remains correct. v18.17.0 released 2026-11-06,
+   provider-login changes only — stay pinned v18.16.0 for launch).
