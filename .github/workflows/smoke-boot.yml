@@ -40,6 +40,14 @@ jobs:
     permissions:
       contents: read
       actions: read  # F3: gh run download of the image-tag artifact
+    env:
+      # F3c (2026-11-06): gh does NOT auto-read the runner's token — the
+      # GitHub Actions runner does not export GITHUB_TOKEN as an env var;
+      # the documented pattern is to set GH_TOKEN explicitly. smoke runs
+      # 42136886623 + 42269497814 both failed at `gh run download` with
+      # this unset (silent, stderr swallowed). Set it at job level so
+      # every gh invocation in the job is authenticated.
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,31 +59,33 @@ jobs:
           elif [ "${{ github.event_name }}" = "workflow_run" ]; then
             # F3: use the EXACT tag the triggering docker-build pushed
             # (artifact from that run), not the newest tag in GHCR.
-            # F3b (2026-11-06): artifact availability is eventually
-            # consistent — smoke run 42136886623 started 4s after the
-            # build completed and `gh run download` 404'd on the
-            # just-uploaded artifact. Retry with backoff, then fail
-            # closed (never fall back to the newest GHCR tag here).
+            # F3b/c (2026-11-06): smoke runs 42136886623 + 42269497814
+            # failed here because `gh run download` had no GH_TOKEN
+            # (the runner does not export GITHUB_TOKEN as an env var —
+            # it must be passed explicitly, now set at the job level).
+            # Retry with backoff for artifact eventual-consistency, then
+            # fail closed (never fall back to the newest GHCR tag here).
             TAG=""
+            DL_ERR=""
             for attempt in $(seq 1 12); do
               rm -rf /tmp/omp-smoke-tag
-              if gh run download "${{ github.event.workflow_run.id }}" \
-                  --repo "${{ github.repository }}" -n image-tag -D /tmp/omp-smoke-tag >/dev/null 2>&1 \
-                 && [ -f /tmp/omp-smoke-tag/image-tag.txt ]; then
+              if ! gh run download "${{ github.event.workflow_run.id }}" \
+                  --repo "${{ github.repository }}" -n image-tag -D /tmp/omp-smoke-tag 2>/tmp/omp-dl-err.txt; then
+                DL_ERR="$(head -c 400 /tmp/omp-dl-err.txt 2>/dev/null | tr '\n' ' ')"
+              fi
+              if [ -f /tmp/omp-smoke-tag/image-tag.txt ]; then
                 TAG="$(cat /tmp/omp-smoke-tag/image-tag.txt)"
                 break
               fi
               if [ "$attempt" -lt 12 ]; then
-                echo "image-tag artifact not ready yet (attempt $attempt/12), waiting 10s..."
+                echo "image-tag not ready (attempt $attempt/12; ${DL_ERR:-no error}), waiting 10s..."
                 sleep 10
+              else
+                echo "::error::no image-tag artifact from build run ${{ github.event.workflow_run.id }} after 12 attempts; last error: ${DL_ERR:-none}" >&2
+                exit 1
               fi
             done
-            if [ -n "$TAG" ]; then
-              echo "SMOKE_IMAGE=$REGISTRY/$IMAGE_NAME:$TAG" >> "$GITHUB_ENV"
-            else
-              echo "::error::no image-tag artifact from build run ${{ github.event.workflow_run.id }} after 12 attempts" >&2
-              exit 1
-            fi
+            echo "SMOKE_IMAGE=$REGISTRY/$IMAGE_NAME:$TAG" >> "$GITHUB_ENV"
           else
             # Latest calver tag for this repo from GHCR (public package).
             TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${IMAGE_NAME}:pull" | jq -r .token)
