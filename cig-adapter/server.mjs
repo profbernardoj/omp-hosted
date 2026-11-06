@@ -29,6 +29,7 @@
  */
 
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 
 const PORT = parseInt(process.env.CIG_ADAPTER_PORT || '18900', 10);
 const HOST = '127.0.0.1'; // loopback ONLY
@@ -64,8 +65,11 @@ async function mintCigToken() {
   const data = await resp.json();
   if (!data.token) throw new Error('mint-cig-token returned no token');
   const ttlSec = Number(data.expires_in || 600);
+  // F5 (Stage 2 R1): single margin — the mint path used to subtract 60s
+  // AND getCigToken applied another 60s margin, wasting ~120s of each token.
+  // Store the absolute expiry with one refresh margin applied at use time.
   cachedToken = data.token;
-  cachedTokenExp = Date.now() + Math.max(0, ttlSec - 60) * 1000;
+  cachedTokenExp = Date.now() + ttlSec * 1000;
   return cachedToken;
 }
 
@@ -79,16 +83,31 @@ async function getCigToken() {
 function authorized(req) {
   const auth = req.headers['authorization'] || '';
   const parts = auth.split(' ');
-  return parts.length === 2 && parts[0].toLowerCase() === 'bearer' &&
-    parts[1] === ADAPTER_KEY;
+  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') return false;
+  // F4 (Stage 2 R1): constant-time compare on equal-length buffers.
+  const a = Buffer.from(parts[1]);
+  const b = Buffer.from(ADAPTER_KEY);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 async function forward(req, res, path) {
-  // Read the full request body (hermes may stream-write it, but upstream
-  // CIG is force-non-streaming anyway; we pass stream through untouched and
-  // let cig-inference handle SSE re-emission).
+  // F8 (Stage 2 R1): cap the read body — an unbounded loopback read is a
+  // local memory-spike shape. 8 MiB is far above any chat payload while
+  // bounding the worst case.
+  const MAX_BODY_BYTES = 8 * 1024 * 1024;
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > MAX_BODY_BYTES) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: { message: 'payload_too_large', type: 'invalid_request_error' },
+      }));
+      return;
+    }
+    chunks.push(chunk);
+  }
   const body = Buffer.concat(chunks);
 
   let token;

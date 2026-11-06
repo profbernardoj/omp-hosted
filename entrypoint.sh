@@ -231,7 +231,14 @@ trap 'shutdown' TERM INT
 run_continit
 # Re-assert invariants AFTER cont-init (a manifest-supplied value cannot
 # weaken the product contract).
+# The web terminal is ALWAYS loopback AND the ttyd listen port is ALWAYS
+# coupled to the auth-proxy upstream target (F2, Stage 2 R1): a manifest
+# that overrides only TTYD_PORT or only OPENCLAW_INTERNAL_PORT would
+# desync ttyd's listen from the proxy's target (authenticated users get
+# 502s while smoke — using image defaults — still passes). The image
+# defaults match (7681/7681); this forces them to stay coupled.
 export TTYD_HOST=127.0.0.1
+export TTYD_PORT="${OPENCLAW_INTERNAL_PORT:-7681}"
 
 log "starting services: auth-proxy web-terminal cig-adapter"
 spawn_service auth-proxy

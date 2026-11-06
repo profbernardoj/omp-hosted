@@ -63,5 +63,21 @@ jobs:
             echo "- Digest: \`$digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # F3 (Stage 2 R1): publish the exact calver tag this run pushed, so the
+      # smoke-boot workflow_run can smoke THIS image instead of "newest tag in
+      # GHCR" (which would let an older image green-check a broken commit).
+      - name: Publish image tag for smoke
+        run: |
+          set -eux
+          mkdir -p /tmp/omp-tag
+          echo "$IMAGE_TAG" > /tmp/omp-tag/image-tag.txt
+          cat /tmp/omp-tag/image-tag.txt
+      - name: Upload image tag artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-tag
+          path: /tmp/omp-tag/image-tag.txt
+          if-no-files-found: error
+
       # SOP-004 hard rule: NEVER build or run Hermes/OMP images locally on
       # the Mac mini — this GHCR image is the ONLY artifact consumers use.

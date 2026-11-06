@@ -62,7 +62,7 @@ ARG NODE_VERSION=22.23.4
 ARG NODE_SHA256=1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        tmux util-linux procps ca-certificates passwd iproute2 xz-utils \
+        tmux util-linux procps ca-certificates passwd iproute2 xz-utils curl \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL -o /usr/local/bin/ttyd \
        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" \

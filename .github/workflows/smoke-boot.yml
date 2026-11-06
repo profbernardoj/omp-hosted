@@ -10,6 +10,12 @@ on:
   workflow_run:
     workflows: [docker-build]
     types: [completed]
+    # F3 (Stage 2 R1): a failed docker-build must NOT trigger smoke — and
+    # when it does run, it must smoke the JUST-BUILT image, not the newest
+    # tag in GHCR (an older image could green-check a broken commit). The
+    # job-level `if` below gates on the triggering build's conclusion, and
+    # the Resolve-image step passes the exact tag from that build via its
+    # uploaded artifact.
 
 env:
   REGISTRY: ghcr.io
@@ -17,6 +23,10 @@ env:
 
 jobs:
   smoke:
+    # F3: only smoke a build that actually succeeded. workflow_run fires on
+    # every completion (success AND failure); without this gate a failed
+    # build would smoke the previous image and falsely green-check.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     # Fred-parity boot test — SOP-004 "Smoke-boot standard for image
     # changes" + SOP-048 Phase 0 step 5 (hosted-mode security exit criteria
     # are MERGE-BLOCKING for the LIVE tag).
@@ -29,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read  # F3: gh run download of the image-tag artifact
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,6 +48,18 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.image }}" ]; then
             echo "SMOKE_IMAGE=${{ github.event.inputs.image }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # F3: use the EXACT tag the triggering docker-build pushed
+            # (artifact from that run), not the newest tag in GHCR.
+            gh run download "${{ github.event.workflow_run.id }}" \
+              --repo "${{ github.repository }}" -n image-tag -D /tmp/omp-smoke-tag >/dev/null 2>&1 || true
+            if [ -f /tmp/omp-smoke-tag/image-tag.txt ]; then
+              TAG="$(cat /tmp/omp-smoke-tag/image-tag.txt)"
+              echo "SMOKE_IMAGE=$REGISTRY/$IMAGE_NAME:$TAG" >> "$GITHUB_ENV"
+            else
+              echo "::error::no image-tag artifact from build run ${{ github.event.workflow_run.id }}" >&2
+              exit 1
+            fi
           else
             # Latest calver tag for this repo from GHCR (public package).
             TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${IMAGE_NAME}:pull" | jq -r .token)
