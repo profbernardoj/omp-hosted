@@ -51,13 +51,29 @@ jobs:
           elif [ "${{ github.event_name }}" = "workflow_run" ]; then
             # F3: use the EXACT tag the triggering docker-build pushed
             # (artifact from that run), not the newest tag in GHCR.
-            gh run download "${{ github.event.workflow_run.id }}" \
-              --repo "${{ github.repository }}" -n image-tag -D /tmp/omp-smoke-tag >/dev/null 2>&1 || true
-            if [ -f /tmp/omp-smoke-tag/image-tag.txt ]; then
-              TAG="$(cat /tmp/omp-smoke-tag/image-tag.txt)"
+            # F3b (2026-11-06): artifact availability is eventually
+            # consistent — smoke run 42136886623 started 4s after the
+            # build completed and `gh run download` 404'd on the
+            # just-uploaded artifact. Retry with backoff, then fail
+            # closed (never fall back to the newest GHCR tag here).
+            TAG=""
+            for attempt in $(seq 1 12); do
+              rm -rf /tmp/omp-smoke-tag
+              if gh run download "${{ github.event.workflow_run.id }}" \
+                  --repo "${{ github.repository }}" -n image-tag -D /tmp/omp-smoke-tag >/dev/null 2>&1 \
+                 && [ -f /tmp/omp-smoke-tag/image-tag.txt ]; then
+                TAG="$(cat /tmp/omp-smoke-tag/image-tag.txt)"
+                break
+              fi
+              if [ "$attempt" -lt 12 ]; then
+                echo "image-tag artifact not ready yet (attempt $attempt/12), waiting 10s..."
+                sleep 10
+              fi
+            done
+            if [ -n "$TAG" ]; then
               echo "SMOKE_IMAGE=$REGISTRY/$IMAGE_NAME:$TAG" >> "$GITHUB_ENV"
             else
-              echo "::error::no image-tag artifact from build run ${{ github.event.workflow_run.id }}" >&2
+              echo "::error::no image-tag artifact from build run ${{ github.event.workflow_run.id }} after 12 attempts" >&2
               exit 1
             fi
           else
