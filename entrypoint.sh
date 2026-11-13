@@ -68,6 +68,15 @@ fi
 if [ "$AGENT_HOME" != "/home/agent" ]; then
   log "WARN: agent HOME relocated to $AGENT_HOME (/home/agent unwritable on this backend)"
   mkdir -p "$AGENT_HOME/workspace" 2>/dev/null || true
+  # The Dockerfile bakes ENV OMP_WORKSPACE pointing at the default agent
+  # workspace under the NOT-relocated home. That baked value defeats the
+  # ${OMP_WORKSPACE:-...} default below on relocated backends (first
+  # staging lease 01a1d70b, morpheus backend: cont-init FATAL exit 2
+  # trying to write AGENTS.md into the unwritable baked workspace).
+  # Relocation must WIN over the baked default; an operator-set env cannot
+  # conflict here because relocation only fires when the baked path is
+  # unwritable anyway.
+  export OMP_WORKSPACE="$AGENT_HOME/workspace"
 fi
 export OMP_STATE_HOME="$AGENT_HOME"
 export OMP_WORKSPACE="${OMP_WORKSPACE:-$AGENT_HOME/workspace}"
