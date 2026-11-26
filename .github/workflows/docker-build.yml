@@ -9,7 +9,7 @@ env:
   # Upstream pin — single source of truth for the base image ref.
   # Bump via the SOP-005-style pin-bump procedure (record commit sha below
   # in the release notes; the workflow logs the resolved sha at build time).
-  OMP_UPSTREAM_REF: v18.16.0
+  OMP_UPSTREAM_REF: v19.2.1
   REGISTRY: ghcr.io
   IMAGE_NAME: profbernardoj/omp-hosted
 
