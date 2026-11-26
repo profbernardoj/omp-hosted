@@ -1,5 +1,18 @@
 # Changelog — omp-hosted
 
+## 2026.11.25 — upstream bump v18.16.0 → v19.2.1
+
+- `OMP_UPSTREAM_REF` v18.16.0 → v19.2.1 (David GO 2026-11-25 19:40 CST).
+  Upstream delta: 6461 commits, 300 files. Notable: package renamed
+  `@mariozechner/pi-coding-agent` → `@oh-my-pi/pi-coding-agent`; bun base
+  1.4.4 → 1.4.5 (baked by upstream base image, no image-side change);
+  browser-relay `gen:embedded` added to upstream's own build (runs inside
+  the base build, not ours); `/usr/local/bin/omp` entrypoint + `omp` CLI
+  name unchanged. Our layers (ttyd/tmux/node/auth-proxy/cont-init/entrypoint)
+  untouched by upstream diffs; models.yml + config.yml schemas unchanged.
+- Version `2026.11.25`; image tag `2026.11.25.<HHMM>` on merge to main.
+- Pool refresh after CI green + smoke: update OMP_IMAGE secret, drain/rebuild.
+
 ## 2026.11.06 — post-Stage-2 fixes
 
 - smoke-retry fix: Resolve-image step retries `gh run download` 12×/10s

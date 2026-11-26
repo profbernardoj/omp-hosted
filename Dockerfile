@@ -11,7 +11,9 @@
 # no registry image (workflows: ci.yml / nix.yml / bun-cache-warm.yml only —
 # verified 2026-11-04), so CI clones oh-my-pi at OMP_UPSTREAM_REF, builds its
 # pi-runtime stage as a local tag, and this Dockerfile consumes it via
-# ARG OMP_UPSTREAM. Pin: v18.16.0 (released 2026-11-02).
+# ARG OMP_UPSTREAM. Pin: v19.2.1 (released 2026-11-25; bumped from v18.16.0 —
+# 6461 upstream commits; package renamed @oh-my-pi/pi-coding-agent; bun 1.4.5
+# baked by upstream base; /usr/local/bin/omp entrypoint unchanged).
 #
 # Layers added on top of the upstream image:
 #   1. web terminal — ttyd (loopback :7681) serving `tmux attach` to a
@@ -34,14 +36,14 @@
 # built locally on the Mac mini.
 # =============================================================================
 
-ARG OMP_UPSTREAM=oh-my-pi/pi:v18.16.0
+ARG OMP_UPSTREAM=oh-my-pi/pi:v19.2.1
 FROM ${OMP_UPSTREAM}
 
 # --- Metadata ---
 LABEL org.opencontainers.image.title="omp-hosted"
 LABEL org.opencontainers.image.description="Hosted OMP coding agent (InstallOMP.ai) — ttyd web terminal + Privy auth + Morpheus CIG inference"
 LABEL org.opencontainers.image.source="https://github.com/profbernardoj/omp-hosted"
-LABEL io.installomp.base-image="can1357/oh-my-pi:v18.16.0 (pi-runtime, built from pinned ref)"
+LABEL io.installomp.base-image="can1357/oh-my-pi:v19.2.1 (pi-runtime, built from pinned ref)"
 
 # --- Our layer: web terminal + privilege-drop tooling + Node runtime ---
 # ttyd is NOT in Debian bookworm main (verified 2026-11-05: "Package 'ttyd'
@@ -77,7 +79,7 @@ RUN apt-get update \
     && node --version && npm --version
 
 # Upstream pi-runtime sets an explicit PATH with NO /usr/sbin or /sbin
-# (verified v18.16.0: /opt/bun/bin:...:/usr/bin:/bin:/usr/local/bun-node-
+# (verified v19.2.1: /opt/bun/bin:...:/usr/bin:/bin:/usr/local/bun-node-
 # fallback-bin) — but useradd (passwd pkg), ss (iproute2), and friends live
 # in /usr/sbin. Without this every one of them is "command not found" even
 # though the package is installed (run 41989633309, build 3). Extend here
